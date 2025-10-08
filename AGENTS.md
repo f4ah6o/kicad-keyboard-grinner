@@ -6,6 +6,11 @@
 ## Build, Test, and Development Commands
 Use `make lint` to run `uvx ruff check` and catch style regressions. Format the tree with `make fmt`, which delegates to `uvx black .`. Validate changes with `make test`, invoking `uvx pytest`. For ad-hoc runs, prefix commands with `uvx` so they execute inside the project’s virtual environment cache (e.g., `uvx pytest tests/test_keyboard_grinner.py::TestRot2d`).
 
+### Versioning Policy
+- Follow CalVer `YYYY.MM.increment` (e.g., `2025.10.1`).
+- Update the version string in `src/keyboard_grinner.py` (`@version` header and stored `data['version']`) only when preparing a release.
+- Tag releases with the matching CalVer (e.g., `v2025.10.1`).
+
 ## Coding Style & Naming Conventions
 Write Python with 4-space indentation and prefer explicit imports. Keep functions small and pure when feasible; name helpers in `snake_case` and constants in `SCREAMING_SNAKE_CASE` (e.g., `UNIT_MM`). Follow Black’s default formatting and let Ruff surface lint fixes before committing. Pay attention to docstrings on public helpers that are used by the KiCad GUI layer, and include short comments when math-heavy sections would otherwise be opaque.
 

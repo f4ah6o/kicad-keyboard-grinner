@@ -42,7 +42,7 @@ Created with vibing using Codex and Claude.
 ## Acknowledgement
 
 * [Salicylic acid](https://x.com/Salicylic_acid3)'s [Jiki Onsen-gai Annaijo (Self-made Keyboard Hot Spring Town Information Center)](https://discord.com/invite/xytwFtmvct) - Jiki Progress Wai-Wai Forum
-* [Chiina](https://x.com/on_8va_bassa) for the post that inspired development and early feedback
+* [Cheena](https://x.com/on_8va_bassa) for the post that inspired development and early feedback
 * [marby](https://github.com/marby3) for providing hints on the asymmetric curve correction feature
 
 ## License

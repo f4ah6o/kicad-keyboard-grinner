@@ -34,6 +34,9 @@ Created with vibing using Codex and Claude.
    * **Angle profile**: Curve shape profile
    * **Asymmetric curve correction**: Enable to compensate for different end key widths (e.g., 1.75u + 1.0u)
 4. Click **Apply** to preview or **OK** to apply and close
+5. Run the plugin with no footprints selected to re-open a saved row. The plugin stores row parameters in a hidden footprint field named `grinner_params` on the leftmost switch and presents them in a picker dialog.
+
+> Tip: set `DEBUG_FIELD_DIALOG = True` in `src/keyboard_grinner.py` if you want pop-up confirmation while working on field storage.
 
 ## KiCad Version
 

@@ -43,6 +43,7 @@ Created with vibing using Codex and Claude.
 
 1. [cheena-gb](https://github.com/cheena-gb)'s [65% keyboard](./example/griiiiiiiiii.kicad_pcb)
    * View it on [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)
+   * Built with an alpha plugin version not stored in this repository plus manual adjustments by the contributor
 
 ## Acknowledgement
 

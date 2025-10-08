@@ -41,6 +41,7 @@ codexやclaudeによるvibingで作成しています。
 
 1. [ちぃな](https://github.com/cheena-gb)さんによる[65% キーボード](./example/griiiiiiiiii.kicad_pcb) by 
   * [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)から見れます。
+  * この作例はリポジトリにないAlpha版を利用し、ユーザー操作による調整を行っています。
 
 ## 謝辞
 

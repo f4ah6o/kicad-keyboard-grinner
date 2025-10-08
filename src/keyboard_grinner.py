@@ -2,10 +2,11 @@
 # @fileoverview KiCad plugin for arranging keyboard switch footprints
 #               in a Grin layout with customizable curve profiles
 #               and asymmetric corrections.
-# @version 2025.10.0
+# @version 2025.11.0
 # @author f12o
 # @see https://github.com/f4ah6o/kicad-keyboard-grinner
 
+import json
 import math
 import re
 
@@ -189,6 +190,47 @@ def infer_key_dimensions(fp):
     if height_mm <= 0 or math.isnan(height_mm):
         height_mm = UNIT_MM
     return width_mm, height_mm
+
+
+class RowSelectionDialog(wx.Dialog):
+    """保存済み行選択ダイアログ"""
+
+    def __init__(self, parent, saved_rows):
+        super().__init__(parent, title="配置済みの行を選択")
+        self._saved_rows = saved_rows
+
+        # 説明ラベル
+        label = wx.StaticText(self, label="編集する行を選択してください:")
+
+        # プルダウン
+        labels = [row['label'] for row in saved_rows]
+        self._choice = wx.Choice(self, choices=labels)
+        if labels:
+            self._choice.SetSelection(0)
+
+        # ボタン
+        self._select_btn = wx.Button(self, wx.ID_OK, label="選択して編集")
+        self._cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        self._select_btn.SetDefault()
+
+        # レイアウト
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        btn_sizer.Add(self._select_btn, 0, wx.RIGHT, 5)
+        btn_sizer.Add(self._cancel_btn, 0)
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(label, 0, wx.ALL, 10)
+        sizer.Add(self._choice, 0, wx.ALL | wx.EXPAND, 10)
+        sizer.Add(btn_sizer, 0, wx.ALL | wx.ALIGN_RIGHT, 10)
+
+        self.SetSizerAndFit(sizer)
+
+    def get_selected_row(self):
+        """選択された行データを返す"""
+        idx = self._choice.GetSelection()
+        if idx >= 0:
+            return self._saved_rows[idx]
+        return None
 
 
 class OptionsDialog(wx.Dialog):
@@ -476,20 +518,32 @@ def run_with_parameters(
 
     # 水平キー0の場合は旧ロジック（b286c7c）を使用
     if end_flat_option == 0:
-        return run_with_parameters_zero_flat(
+        success = run_with_parameters_zero_flat(
             board, fps, N, sag_y_mm, angle_profile_key, use_asymmetric_curve
         )
+    else:
+        # 水平キー1以上の場合は新ロジック（996b4d9）を使用
+        success = run_with_parameters_nonzero_flat(
+            board,
+            fps,
+            N,
+            sag_y_mm,
+            end_flat_option,
+            angle_profile_key,
+            use_asymmetric_curve,
+        )
 
-    # 水平キー1以上の場合は新ロジック（996b4d9）を使用
-    return run_with_parameters_nonzero_flat(
-        board,
-        fps,
-        N,
-        sag_y_mm,
-        end_flat_option,
-        angle_profile_key,
-        use_asymmetric_curve,
-    )
+    # 成功時にパラメータを保存
+    if success:
+        params = {
+            'sag': sag_y_mm,
+            'end_flat': end_flat_option,
+            'profile': angle_profile_key,
+            'use_asymmetric_curve': use_asymmetric_curve
+        }
+        save_parameters_to_footprint(fps[0], params, fps)
+
+    return success
 
 
 def run_with_parameters_zero_flat(
@@ -1031,6 +1085,84 @@ def place_with_corner_contact(
     return best[1]
 
 
+def save_parameters_to_footprint(first_fp, params, target_fps):
+    """
+    左端フットプリントにパラメータを保存
+
+    Args:
+        first_fp: 左端フットプリント
+        params: 保存するパラメータ dict
+        target_fps: 対象フットプリントのリスト
+    """
+    try:
+        props = first_fp.GetProperties()
+        data = params.copy()
+        refs = [fp.GetReference() for fp in target_fps]
+        data['footprints'] = refs
+        data['row_name'] = f"{refs[0]}〜{refs[-1]}"
+        data['version'] = '2025.11.0'
+        props['grinner_params'] = json.dumps(data, ensure_ascii=False)
+        first_fp.SetPropertiesNative(props)
+    except Exception as e:
+        print(f"Failed to save parameters: {e}")
+
+
+def find_saved_rows(board):
+    """
+    ボードから保存済み行を検出
+
+    Args:
+        board: pcbnew.BOARD
+
+    Returns:
+        list: 保存済み行のリスト
+    """
+    saved_rows = []
+    for fp in board.GetFootprints():
+        props = fp.GetProperties()
+        if 'grinner_params' in props:
+            try:
+                data = json.loads(props['grinner_params'])
+                saved_rows.append({
+                    'first_fp': fp,
+                    'data': data,
+                    'label': f"{data.get('row_name', 'Unknown')} ({len(data.get('footprints', []))}個)"
+                })
+            except json.JSONDecodeError:
+                continue
+    return saved_rows
+
+
+def reselect_footprints_from_data(board, data):
+    """
+    保存されたフットプリントリストを再選択
+
+    Args:
+        board: pcbnew.BOARD
+        data: 保存されたパラメータ dict
+
+    Returns:
+        int: 選択されたフットプリント数
+    """
+    if 'footprints' not in data:
+        return 0
+
+    target_refs = set(data['footprints'])
+    count = 0
+
+    # 既存選択をクリア
+    for fp in board.GetFootprints():
+        fp.SetSelected(False)
+
+    # 対象を選択
+    for fp in board.GetFootprints():
+        if fp.GetReference() in target_refs:
+            fp.SetSelected(True)
+            count += 1
+
+    return count
+
+
 def gather_targets(board):
     selected = [fp for fp in board.GetFootprints() if fp.IsSelected()]
     regex = re.compile(REF_REGEX)
@@ -1057,14 +1189,69 @@ class GrinArrayPlaceRow(pcbnew.ActionPlugin):
         except AttributeError:
             parent = wx.GetActiveWindow()
 
+        # 現在の選択をチェック
+        selected = [fp for fp in board.GetFootprints() if fp.IsSelected()]
+
+        initial_params = None
+
+        if not selected:
+            # 選択なし → 行選択ダイアログを表示
+            saved_rows = find_saved_rows(board)
+
+            if not saved_rows:
+                # 保存行なし
+                wx.MessageBox(
+                    "SW* 参照名のフットプリントを選択してから実行してください。",
+                    "Keyboard grinner",
+                    wx.OK | wx.ICON_INFORMATION
+                )
+                return
+
+            # 行選択ダイアログ
+            row_dialog = RowSelectionDialog(parent, saved_rows)
+            result = row_dialog.ShowModal()
+
+            if result != wx.ID_OK:
+                row_dialog.Destroy()
+                return
+
+            # 選択された行のフットプリントを選択
+            selected_row = row_dialog.get_selected_row()
+            row_dialog.Destroy()
+
+            if not selected_row:
+                return
+
+            count = reselect_footprints_from_data(board, selected_row['data'])
+            pcbnew.Refresh()
+
+            if count == 0:
+                wx.MessageBox(
+                    "保存されたフットプリントが見つかりませんでした。",
+                    "Keyboard grinner",
+                    wx.OK | wx.ICON_WARNING
+                )
+                return
+
+            # 保存されたパラメータを初期値として使用
+            initial_params = selected_row['data']
+
+        # パラメータダイアログを開く
         global _current_sag_y_mm, _current_end_flat_keys, _current_angle_profile, _current_use_asymmetric_curve
-        dialog = OptionsDialog(
-            parent,
-            _current_sag_y_mm,
-            _current_end_flat_keys,
-            _current_angle_profile,
-            _current_use_asymmetric_curve,
-        )
+
+        # 初期値の決定
+        if initial_params:
+            sag = initial_params.get('sag', _current_sag_y_mm)
+            end_flat = initial_params.get('end_flat', _current_end_flat_keys)
+            profile = initial_params.get('profile', _current_angle_profile)
+            asymmetric = initial_params.get('use_asymmetric_curve', _current_use_asymmetric_curve)
+        else:
+            sag = _current_sag_y_mm
+            end_flat = _current_end_flat_keys
+            profile = _current_angle_profile
+            asymmetric = _current_use_asymmetric_curve
+
+        dialog = OptionsDialog(parent, sag, end_flat, profile, asymmetric)
 
         def handle_apply(params):
             global _current_sag_y_mm, _current_end_flat_keys, _current_angle_profile, _current_use_asymmetric_curve
@@ -1072,14 +1259,17 @@ class GrinArrayPlaceRow(pcbnew.ActionPlugin):
             end_flat_val = max(0, min(2, int(params["end_flat"])))
             profile_key = params["profile"]
             use_async = params["use_asymmetric_curve"]
+
             success = run_with_parameters(
                 board, sag_val, end_flat_val, profile_key, use_async
             )
+
             if success:
                 _current_sag_y_mm = sag_val
                 _current_end_flat_keys = end_flat_val
                 _current_angle_profile = profile_key
                 _current_use_asymmetric_curve = use_async
+
             return success
 
         dialog.set_apply_handler(handle_apply)

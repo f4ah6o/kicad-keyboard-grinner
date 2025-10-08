@@ -2,7 +2,7 @@
 # @fileoverview KiCad plugin for arranging keyboard switch footprints
 #               in a Grin layout with customizable curve profiles
 #               and asymmetric corrections.
-# @version 2025.11.0
+# @version 2025.10.1
 # @author f12o
 # @see https://github.com/f4ah6o/kicad-keyboard-grinner
 
@@ -1230,7 +1230,7 @@ def save_parameters_to_footprint(first_fp, params, target_fps):
         refs = [fp.GetReference() for fp in target_fps]
         data['footprints'] = refs
         data['row_name'] = f"{refs[0]}〜{refs[-1]}"
-        data['version'] = '2025.11.0'
+        data['version'] = '2025.10.1'
 
         json_str = json.dumps(data, ensure_ascii=False)
 

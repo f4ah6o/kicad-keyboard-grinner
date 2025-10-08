@@ -37,10 +37,17 @@ codexやclaudeによるvibingで作成しています。
 
 * 8,9
 
+## 作例
+
+1. [ちぃな](https://github.com/cheena-gb)さんによる[65% キーボード](./example/griiiiiiiiii.kicad_pcb) by 
+  * [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)から見れます。
+
 ## 謝辞
 
 * [サリチル酸](https://x.com/Salicylic_acid3)さんの[自キ温泉街案内所](https://discord.com/invite/xytwFtmvct)　自キ進捗ワイワイフォーラム
-* 開発のきっかけとなった投稿といち早く反応をくれた[ちぃな](https://x.com/on_8va_bassa)さん
+* 開発のきっかけとなった投稿といち早く反応をくれた[ちぃな](https://github.com/cheena-gb)さん
+  * さらに[作例](./example/griiiiiiiiii.kicad_pcb)を提供
+  * [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)から見れます。
 * 非対称カーブ補正機能のヒントを提供してくれた[marby](https://github.com/marby3)さん
 
 ## ライセンス

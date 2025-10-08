@@ -39,10 +39,17 @@ Created with vibing using Codex and Claude.
 
 * 8, 9
 
+## Example
+
+1. [cheena-gb](https://github.com/cheena-gb)'s [65% keyboard](./example/griiiiiiiiii.kicad_pcb)
+   * View it on [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)
+
 ## Acknowledgement
 
 * [Salicylic acid](https://x.com/Salicylic_acid3)'s [Jiki Onsen-gai Annaijo (Self-made Keyboard Hot Spring Town Information Center)](https://discord.com/invite/xytwFtmvct) - Jiki Progress Wai-Wai Forum
-* [Cheena](https://x.com/on_8va_bassa) for the post that inspired development and early feedback
+* [cheena-gb](https://github.com/cheena-gb) for the post that inspired development and early feedback
+  * Additionally provided the [example board](./example/griiiiiiiiii.kicad_pcb)
+  * Also viewable on [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)
 * [marby](https://github.com/marby3) for providing hints on the asymmetric curve correction feature
 
 ## License

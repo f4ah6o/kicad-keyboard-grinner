@@ -238,7 +238,8 @@ def run_with_parameters_zero_flat(
         for idx, cat in enumerate(categories_actual):
             if cat == "flat" and idx > 0:
                 actual_centers[idx] = (actual_centers[idx][0], base_y)
-        if len(actual_centers) > 1:
+        # 非対称カーブ補正OFF時のみ右端キーを強制的に水平に揃える
+        if len(actual_centers) > 1 and not use_asymmetric_curve:
             actual_centers[-1] = (actual_centers[-1][0], base_y)
 
     # Apply end key width corrections (only if not using virtual endcaps)
@@ -358,7 +359,7 @@ def run_with_parameters_nonzero_flat(
     )
 
     # Apply flat key y-coordinate adjustments
-    centers = apply_flat_key_adjustments(centers, categories, N)
+    centers = apply_flat_key_adjustments(centers, categories, N, use_asymmetric_curve)
 
     # Draw debug geometry
     draw_debug_geometry(board, P0, P1, P2, P3, centers, angles, key_sizes)

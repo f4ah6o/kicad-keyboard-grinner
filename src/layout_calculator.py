@@ -357,7 +357,7 @@ def apply_end_key_width_corrections(
     return centers
 
 
-def apply_flat_key_adjustments(centers, categories, N):
+def apply_flat_key_adjustments(centers, categories, N, use_asymmetric_curve=False):
     """
     Apply y-coordinate adjustments for flat keys.
 
@@ -365,6 +365,7 @@ def apply_flat_key_adjustments(centers, categories, N):
         centers: List of center positions
         categories: List of key categories
         N: Number of keys
+        use_asymmetric_curve: Whether asymmetric curve correction is enabled
 
     Returns:
         Updated centers list
@@ -374,8 +375,8 @@ def apply_flat_key_adjustments(centers, categories, N):
         for idx in range(N):
             if categories[idx] == "flat" and idx > 0:
                 centers[idx] = (centers[idx][0], base_y)
-        # Align right end key to base_y
-        if N > 1:
+        # 非対称カーブ補正OFF時のみ右端キーを強制的に水平に揃える
+        if N > 1 and not use_asymmetric_curve:
             centers[-1] = (centers[-1][0], base_y)
     return centers
 

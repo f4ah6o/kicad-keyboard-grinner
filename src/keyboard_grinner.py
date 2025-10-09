@@ -800,7 +800,8 @@ def run_with_parameters_zero_flat(
         for idx, cat in enumerate(categories_actual):
             if cat == "flat" and idx > 0:
                 actual_centers[idx] = (actual_centers[idx][0], base_y)
-        if len(actual_centers) > 1:
+        # 非対称カーブ補正OFF時のみ右端キーを強制的に水平に揃える
+        if len(actual_centers) > 1 and not use_asymmetric_curve:
             actual_centers[-1] = (actual_centers[-1][0], base_y)
 
     if (
@@ -1007,8 +1008,8 @@ def run_with_parameters_nonzero_flat(
         for idx in range(N):
             if categories[idx] == "flat" and idx > 0:
                 centers[idx] = (centers[idx][0], base_y)
-        # 右端キーも base_y に揃える
-        if N > 1:
+        # 非対称カーブ補正OFF時のみ右端キーを強制的に水平に揃える
+        if N > 1 and not use_asymmetric_curve:
             centers[-1] = (centers[-1][0], base_y)
 
     if DRAW_EDGECUTS:

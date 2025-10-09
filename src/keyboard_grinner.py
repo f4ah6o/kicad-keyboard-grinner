@@ -22,7 +22,7 @@ UNIT_MM = 19.05  # key pitch (1u)
 DEFAULT_SAG_Y_MM = 20.0  # downward sag of the lowest key [mm]
 DEFAULT_END_FLAT_KEYS = 1  # number of flat keys at each end (0, 1, or 2)
 DEFAULT_USE_ASYMMETRIC_CURVE = (
-    True  # asymmetric curve correction for different end key widths
+    False  # asymmetric curve correction for different end key widths
 )
 ROT_OFFSET_DEG = 0.0  # footprint orientation offset
 REF_REGEX = r"^SW\d+$"  # target references
@@ -976,12 +976,7 @@ def run_with_parameters_nonzero_flat(
             prev_center, prev_angle, curr_angle, prev_width, curr_width, mode, fwd
         )
 
-    if N > 0:
-        base_y = centers[0][1]
-        for idx in range(N):
-            if categories[idx] == "flat" and idx > 0:
-                centers[idx] = (centers[idx][0], base_y)
-
+    # 端キーの実幅補正を先に実施（水平補正前に行うことで精度向上）
     if abs(left_actual_width - UNIT_MM) > 1e-6:
         angle_left = angles[0]
         virtual_offset = rot2d(UNIT_MM / 2.0, -left_actual_height / 2.0, angle_left)
@@ -1005,6 +1000,16 @@ def run_with_parameters_nonzero_flat(
             virtual_offset[1] - actual_offset[1],
         )
         centers[-1] = (centers[-1][0] + delta_right[0], centers[-1][1] + delta_right[1])
+
+    # 水平キーのy座標補正を最後に実施
+    if N > 0:
+        base_y = centers[0][1]
+        for idx in range(N):
+            if categories[idx] == "flat" and idx > 0:
+                centers[idx] = (centers[idx][0], base_y)
+        # 右端キーも base_y に揃える
+        if N > 1:
+            centers[-1] = (centers[-1][0], base_y)
 
     if DRAW_EDGECUTS:
         poly = [bezier_cubic_point(i / 100.0, P0, P1, P2, P3) for i in range(101)]

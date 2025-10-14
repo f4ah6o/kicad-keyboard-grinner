@@ -13,7 +13,7 @@ import re
 import pcbnew
 import wx
 
-PLUGIN_NAME = "Keyboard grinner"
+PLUGIN_NAME = "Keyboard grinner3"
 PLUGIN_CATEGORY = "Modify PCB"
 PLUGIN_DESCRIPTION = "For Grin layout, place selected SW footprints along a convex-down row with corner contact."
 
@@ -39,6 +39,7 @@ ANGLE_PROFILE_OPTIONS = [
     ("緩やか (コサイン)", "cosine"),
     ("自然 (ベジェ接線)", "bezier"),
     ("滑らか (二次)", "quadratic"),
+    ("オリジナル (円弧)", "original"),
 ]
 
 _current_angle_profile = ANGLE_PROFILE_OPTIONS[0][1]
@@ -506,7 +507,196 @@ def angle_profile_factor(profile_key: str, norm_distance: float) -> float:
         return math.cos((math.pi / 2.0) * norm)
     if profile_key == "quadratic":
         return max(0.0, 1.0 - norm * norm)
+    if profile_key == "original":
+        return None  # Special handling flag for original Grin arc-based layout
     return 1.0
+
+
+def calculate_blend_factor(index: int, total_count: int) -> float:
+    """
+    中央付近の微調整係数を計算（オリジナルGrin方式用）
+
+    Args:
+        index: キーのインデックス（0-based）
+        total_count: 総キー数
+
+    Returns:
+        微調整係数: 0.0（端） ~ 1.0（中央）
+    """
+    if total_count <= 1:
+        return 0.0
+
+    center = (total_count - 1) / 2.0
+    distance = abs(index - center)
+
+    # 中央2キー分を強く調整
+    blend_zone = 2.0
+    if distance > blend_zone:
+        return 0.0
+
+    return 1.0 - (distance / blend_zone)
+
+
+def select_contact_mode_for_original_grin(
+    prev_angle: float,
+    curr_angle: float,
+    position_index: int,
+    total_count: int,
+    prev_category: str = None,
+    curr_category: str = None,
+) -> str:
+    """
+    オリジナルGrin方式専用：角度情報に基づいて接触モードを選択
+
+    隣接キーの角度差と平均角度、位置、カテゴリに基づいて、干渉を最小化する
+    接触モード（upper/lower）を動的に選択する。
+
+    Args:
+        prev_angle: 前のキーの角度（ラジアン）
+        curr_angle: 現在のキーの角度（ラジアン）
+        position_index: 現在のキーのインデックス（0-based）
+        total_count: 総キー数
+        prev_category: 前のキーのカテゴリ (optional)
+        curr_category: 現在のキーのカテゴリ (optional)
+
+    Returns:
+        "upper" または "lower"
+
+    判定ロジック:
+        1. 水平キー（カテゴリが flat/valley_flat）との隣接 → lower
+        2. 角度差が大きい（> 5°）→ upper（下角接触だと干渉）
+        3. 平均角度が大きい（> 10°）→ upper（中央部は上角接触が安定）
+        4. 端に近い（正規化距離 > 0.7）→ lower（端は下角接触）
+        5. デフォルト → lower
+    """
+    # カテゴリ情報がある場合は優先的に使用
+    if prev_category or curr_category:
+        if prev_category in ("flat", "valley_flat") or curr_category in (
+            "flat",
+            "valley_flat",
+        ):
+            return "lower"
+
+    # 水平キーの判定閾値（1度未満）- カテゴリ情報がない場合のフォールバック
+    FLAT_THRESHOLD = math.radians(1.0)
+
+    # 前または現在のキーが水平キーの場合は lower を優先
+    if abs(prev_angle) < FLAT_THRESHOLD or abs(curr_angle) < FLAT_THRESHOLD:
+        return "lower"
+
+    # 角度差の絶対値
+    angle_diff = abs(curr_angle - prev_angle)
+
+    # 平均角度の絶対値
+    avg_angle = abs(prev_angle + curr_angle) / 2.0
+
+    # 中央からの距離（正規化）
+    center = (total_count - 1) / 2.0
+    norm_distance = abs(position_index - center) / center if center > 0 else 0.0
+
+    # 角度差が大きい場合（> 5度）は upper を優先
+    if angle_diff > math.radians(5.0):
+        return "upper"
+
+    # 平均角度が大きい場合（> 10度）は upper
+    if avg_angle > math.radians(10.0):
+        return "upper"
+
+    # 端に近い場合（norm_distance > 0.7）は lower
+    if norm_distance > 0.7:
+        return "lower"
+
+    # デフォルトは lower
+    return "lower"
+
+
+def calculate_original_grin_layout(
+    P0, P3, sag_y_mm, N, cumulative_distances, left_width_mm, right_width_mm, use_asymmetric_curve
+):
+    """
+    オリジナルGrin方式: 円弧上配置 + 中央微調整
+
+    基本的には決まった半径の円弧上に一定間隔で配置し、
+    円が切り替わる近辺（中央部）で角度を微調整する。
+
+    Args:
+        P0: 始点座標 (x, y)
+        P3: 終点座標 (x, y)
+        sag_y_mm: 下げ量 (mm)
+        N: キー数
+        cumulative_distances: 各キーの累積距離
+        left_width_mm: 左端キーの幅 (mm)
+        right_width_mm: 右端キーの幅 (mm)
+        use_asymmetric_curve: 非対称カーブ補正を使用するか
+
+    Returns:
+        (centers, angles): 各キーの中心座標と角度（ラジアン）のリスト
+    """
+    row_length = P3[0] - P0[0]
+
+    # 円弧半径を計算（下げ量から逆算）
+    # 円の方程式: (x - cx)^2 + (y - cy)^2 = R^2
+    # 円弧の端点が P0 と P3、最下点が sag_y_mm 下がっている
+    # R^2 = (row_length/2)^2 + (R - sag_y_mm)^2
+    # 展開: R^2 = (row_length/2)^2 + R^2 - 2*R*sag_y_mm + sag_y_mm^2
+    # 整理: 0 = (row_length/2)^2 - 2*R*sag_y_mm + sag_y_mm^2
+    # 解く: R = ((row_length/2)^2 + sag_y_mm^2) / (2 * sag_y_mm)
+    if sag_y_mm < 1e-6:
+        # 下げ量がほぼゼロの場合は直線配置
+        radius = 1e9
+    else:
+        radius = ((row_length / 2.0) ** 2 + sag_y_mm ** 2) / (2.0 * sag_y_mm)
+
+    # 円の中心座標（Math座標系でY軸下向きが負）
+    circle_center_x = (P0[0] + P3[0]) / 2.0
+    circle_center_y = P0[1] + (radius - sag_y_mm)  # 下げる = Math座標系では負の方向
+
+    # 非対称補正: 左右の端キー幅の違いを考慮して円の中心をシフト
+    if use_asymmetric_curve:
+        total_width = left_width_mm + right_width_mm
+        if total_width > 1e-6:
+            asymmetry = (left_width_mm - right_width_mm) / total_width
+            # 左端が広い場合は円の中心を右にシフト（カーブを左寄りに）
+            shift_factor = 0.15
+            shift = -asymmetry * shift_factor * row_length  # 符号を反転
+            circle_center_x += shift
+
+    # 両端の角度（円の中心から見た角度）
+    if radius > 1e-6:
+        half_span_angle = math.asin(min(1.0, (row_length / 2.0) / radius))
+    else:
+        half_span_angle = 0.0
+
+    # 各キーを円弧上に配置
+    centers = []
+    angles = []
+
+    total_dist = cumulative_distances[-1] if cumulative_distances[-1] > 0 else 1.0
+
+    for i, cum_dist in enumerate(cumulative_distances):
+        # 正規化位置 (-1.0 ~ +1.0)
+        norm_pos = (cum_dist / total_dist) * 2.0 - 1.0
+
+        # 円弧角度（中心から見た角度）
+        theta = norm_pos * half_span_angle
+
+        # 円弧上の位置（Math座標系）
+        x = circle_center_x + radius * math.sin(theta)
+        y = circle_center_y - radius * math.cos(theta)  # Y軸下向きが負なので-符号
+
+        # 接線角度（円弧の法線に垂直）
+        # 円弧の接線は法線（半径方向）に対して90度回転
+        tangent_angle = theta
+
+        # 中央付近で微調整（角度を緩和して「攻めたGRIN」を実現）
+        blend_factor = calculate_blend_factor(i, N)
+        # 中央部の角度を30%緩和（キーが詰まりすぎないように）
+        adjusted_angle = tangent_angle * (1.0 - blend_factor * 0.3)
+
+        centers.append((x, y))
+        angles.append(adjusted_angle)
+
+    return centers, angles
 
 
 def assign_categories(count: int, end_flat: int):
@@ -729,43 +919,94 @@ def run_with_parameters_zero_flat(
     P0 = base_math
     P3 = (base_math[0] + row_length, base_math[1])
 
-    # ベジェ制御点の計算: 非対称カーブ補正の適用
-    if use_asymmetric_curve:
-        # 非対称カーブ: 実際の端キー幅を使用
-        P1, P2 = calculate_asymmetric_bezier_controls(
-            P0, P3, sag_y_mm, left_actual_width, right_actual_width
-        )
-    else:
-        # 従来の対称カーブ
-        beta = (4.0 / 3.0) * (-sag_y_mm)
-        P1 = (P0[0] + row_length / 3.0, P0[1] + beta)
-        P2 = (P3[0] - row_length / 3.0, P3[1] + beta)
-
-    ts = bezier_divide_by_distances(P0, P1, P2, P3, layout_N, cumulative_distances)
-    centers = [bezier_cubic_point(t, P0, P1, P2, P3) for t in ts]
-
-    categories_layout = assign_categories(layout_N, 0)
-    if use_virtual_endcaps:
-        categories_layout[0] = "flat"
-        categories_layout[-1] = "flat"
-    categories_actual = assign_categories(N, 0)
-
-    base_tangent = []
-    angles = []
-    center_pos = (layout_N - 1) / 2.0 if layout_N > 1 else 0.0
-    max_dist = center_pos if center_pos > 0 else 1.0
-    for idx, t in enumerate(ts):
-        dx, dy = bezier_cubic_tangent(t, P0, P1, P2, P3)
-        ang = math.atan2(dy, dx)
-        base_tangent.append(ang)
-        norm = abs(idx - center_pos) / max_dist
-        factor = angle_profile_factor(angle_profile_key, norm)
-        cat = categories_layout[idx]
-        if cat in ("flat", "valley_flat"):
-            adj_ang = 0.0
+    # オリジナルGrin方式の場合は円弧ベースで計算
+    if angle_profile_key == "original":
+        # 仮想エンドキャップを考慮した実際の幅を取得
+        if use_virtual_endcaps and layout_N >= 2:
+            # 仮想エンドキャップを除いた実際のキー範囲で計算
+            actual_P0 = (P0[0] + layout_widths[0] / 2.0, P0[1])
+            actual_P3 = (P3[0] - layout_widths[-1] / 2.0, P3[1])
         else:
-            adj_ang = ang * factor
-        angles.append(adj_ang)
+            actual_P0 = P0
+            actual_P3 = P3
+
+        centers_layout, angles_layout = calculate_original_grin_layout(
+            actual_P0, actual_P3, sag_y_mm, layout_N,
+            cumulative_distances, left_actual_width, right_actual_width,
+            use_asymmetric_curve
+        )
+
+        # 仮想エンドキャップのオフセットを適用
+        if use_virtual_endcaps and layout_N >= 2:
+            offset_x = P0[0] - actual_P0[0]
+            centers_layout = [(c[0] + offset_x, c[1]) for c in centers_layout]
+
+        centers = centers_layout
+        angles = angles_layout
+        base_tangent = angles_layout  # 後のコーナーコンタクト計算用
+
+        categories_layout = assign_categories(layout_N, 0)
+        if use_virtual_endcaps:
+            categories_layout[0] = "flat"
+            categories_layout[-1] = "flat"
+        categories_actual = assign_categories(N, 0)
+
+        # 水平キー（flat）の角度を0に上書き
+        for idx, cat in enumerate(categories_layout):
+            if cat in ("flat", "valley_flat"):
+                angles[idx] = 0.0
+
+        # 角度上書き後に接触モードを計算
+        contact_modes_layout = []
+        for idx in range(layout_N):
+            if idx == 0:
+                contact_modes_layout.append(None)
+            else:
+                mode = select_contact_mode_for_original_grin(
+                    angles[idx - 1], angles[idx], idx, layout_N,
+                    categories_layout[idx - 1], categories_layout[idx]
+                )
+                contact_modes_layout.append(mode)
+
+    else:
+        # ベジェ曲線ベースの従来方式
+        # ベジェ制御点の計算: 非対称カーブ補正の適用
+        if use_asymmetric_curve:
+            # 非対称カーブ: 実際の端キー幅を使用
+            P1, P2 = calculate_asymmetric_bezier_controls(
+                P0, P3, sag_y_mm, left_actual_width, right_actual_width
+            )
+        else:
+            # 従来の対称カーブ
+            beta = (4.0 / 3.0) * (-sag_y_mm)
+            P1 = (P0[0] + row_length / 3.0, P0[1] + beta)
+            P2 = (P3[0] - row_length / 3.0, P3[1] + beta)
+
+        ts = bezier_divide_by_distances(P0, P1, P2, P3, layout_N, cumulative_distances)
+        centers = [bezier_cubic_point(t, P0, P1, P2, P3) for t in ts]
+
+        categories_layout = assign_categories(layout_N, 0)
+        if use_virtual_endcaps:
+            categories_layout[0] = "flat"
+            categories_layout[-1] = "flat"
+        categories_actual = assign_categories(N, 0)
+
+        base_tangent = []
+        angles = []
+        center_pos = (layout_N - 1) / 2.0 if layout_N > 1 else 0.0
+        max_dist = center_pos if center_pos > 0 else 1.0
+        for idx, t in enumerate(ts):
+            dx, dy = bezier_cubic_tangent(t, P0, P1, P2, P3)
+            ang = math.atan2(dy, dx)
+            base_tangent.append(ang)
+            norm = abs(idx - center_pos) / max_dist
+            factor = angle_profile_factor(angle_profile_key, norm)
+            cat = categories_layout[idx]
+            if cat in ("flat", "valley_flat"):
+                adj_ang = 0.0
+            else:
+                adj_ang = ang * factor
+            angles.append(adj_ang)
 
     angles = [ang + math.radians(ROT_OFFSET_DEG) for ang in angles]
 
@@ -775,9 +1016,15 @@ def run_with_parameters_zero_flat(
         curr_angle = angles[idx]
         prev_width = layout_widths[idx - 1]
         curr_width = layout_widths[idx]
-        mode = contact_mode_from_categories(
-            categories_layout[idx - 1], categories_layout[idx]
-        )
+
+        # オリジナルGrin方式の場合は動的接触モードを使用
+        if angle_profile_key == "original":
+            mode = contact_modes_layout[idx]
+        else:
+            mode = contact_mode_from_categories(
+                categories_layout[idx - 1], categories_layout[idx]
+            )
+
         avg = math.atan2(
             math.sin(base_tangent[idx - 1]) + math.sin(base_tangent[idx]),
             math.cos(base_tangent[idx - 1]) + math.cos(base_tangent[idx]),
@@ -924,39 +1171,68 @@ def run_with_parameters_nonzero_flat(
     P0 = base_math
     P3 = (base_math[0] + row_length, base_math[1])
 
-    # ベジェ制御点の計算: 非対称カーブ補正の適用
-    if use_asymmetric_curve:
-        # 非対称カーブ: 実際の端キー幅を使用
-        P1, P2 = calculate_asymmetric_bezier_controls(
-            P0, P3, sag_y_mm, left_actual_width, right_actual_width
+    # オリジナルGrin方式の場合は円弧ベースで計算
+    if angle_profile_key == "original":
+        centers, angles = calculate_original_grin_layout(
+            P0, P3, sag_y_mm, N, cumulative_distances,
+            left_actual_width, right_actual_width, use_asymmetric_curve
         )
+
+        categories = assign_categories(N, end_flat_option)
+        base_tangent = angles  # 後のコーナーコンタクト計算用
+
+        # 水平キー（flat）の角度を0に上書き
+        for idx, cat in enumerate(categories):
+            if cat in ("flat", "valley_flat"):
+                angles[idx] = 0.0
+
+        # 角度上書き後に接触モードを計算
+        contact_modes = []
+        for idx in range(N):
+            if idx == 0:
+                contact_modes.append(None)
+            else:
+                mode = select_contact_mode_for_original_grin(
+                    angles[idx - 1], angles[idx], idx, N,
+                    categories[idx - 1], categories[idx]
+                )
+                contact_modes.append(mode)
+
     else:
-        # 従来の対称カーブ
-        beta = (4.0 / 3.0) * (-sag_y_mm)
-        P1 = (P0[0] + row_length / 3.0, P0[1] + beta)
-        P2 = (P3[0] - row_length / 3.0, P3[1] + beta)
-
-    ts = bezier_divide_by_distances(P0, P1, P2, P3, N, cumulative_distances)
-    centers = [bezier_cubic_point(t, P0, P1, P2, P3) for t in ts]
-
-    categories = assign_categories(N, end_flat_option)
-
-    base_tangent = []
-    angles = []
-    center_pos = (N - 1) / 2.0 if N > 1 else 0.0
-    max_dist = center_pos if center_pos > 0 else 1.0
-    for idx, t in enumerate(ts):
-        dx, dy = bezier_cubic_tangent(t, P0, P1, P2, P3)
-        ang = math.atan2(dy, dx)
-        base_tangent.append(ang)
-        norm = abs(idx - center_pos) / max_dist
-        factor = angle_profile_factor(angle_profile_key, norm)
-        cat = categories[idx]
-        if cat in ("flat", "valley_flat"):
-            adj_ang = 0.0
+        # ベジェ曲線ベースの従来方式
+        # ベジェ制御点の計算: 非対称カーブ補正の適用
+        if use_asymmetric_curve:
+            # 非対称カーブ: 実際の端キー幅を使用
+            P1, P2 = calculate_asymmetric_bezier_controls(
+                P0, P3, sag_y_mm, left_actual_width, right_actual_width
+            )
         else:
-            adj_ang = ang * factor
-        angles.append(adj_ang)
+            # 従来の対称カーブ
+            beta = (4.0 / 3.0) * (-sag_y_mm)
+            P1 = (P0[0] + row_length / 3.0, P0[1] + beta)
+            P2 = (P3[0] - row_length / 3.0, P3[1] + beta)
+
+        ts = bezier_divide_by_distances(P0, P1, P2, P3, N, cumulative_distances)
+        centers = [bezier_cubic_point(t, P0, P1, P2, P3) for t in ts]
+
+        categories = assign_categories(N, end_flat_option)
+
+        base_tangent = []
+        angles = []
+        center_pos = (N - 1) / 2.0 if N > 1 else 0.0
+        max_dist = center_pos if center_pos > 0 else 1.0
+        for idx, t in enumerate(ts):
+            dx, dy = bezier_cubic_tangent(t, P0, P1, P2, P3)
+            ang = math.atan2(dy, dx)
+            base_tangent.append(ang)
+            norm = abs(idx - center_pos) / max_dist
+            factor = angle_profile_factor(angle_profile_key, norm)
+            cat = categories[idx]
+            if cat in ("flat", "valley_flat"):
+                adj_ang = 0.0
+            else:
+                adj_ang = ang * factor
+            angles.append(adj_ang)
 
     angles = [ang + math.radians(ROT_OFFSET_DEG) for ang in angles]
 
@@ -966,7 +1242,13 @@ def run_with_parameters_nonzero_flat(
         curr_angle = angles[idx]
         prev_width = virtual_widths[idx - 1]
         curr_width = virtual_widths[idx]
-        mode = contact_mode_from_categories(categories[idx - 1], categories[idx])
+
+        # オリジナルGrin方式の場合は動的接触モードを使用
+        if angle_profile_key == "original":
+            mode = contact_modes[idx]
+        else:
+            mode = contact_mode_from_categories(categories[idx - 1], categories[idx])
+
         avg = math.atan2(
             math.sin(base_tangent[idx - 1]) + math.sin(base_tangent[idx]),
             math.cos(base_tangent[idx - 1]) + math.cos(base_tangent[idx]),

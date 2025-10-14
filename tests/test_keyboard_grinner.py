@@ -25,6 +25,9 @@ from keyboard_grinner import (
     assign_categories,
     contact_mode_from_categories,
     calculate_asymmetric_bezier_controls,
+    calculate_blend_factor,
+    calculate_original_grin_layout,
+    select_contact_mode_for_original_grin,
     bezier_cubic_point,
     bezier_cubic_tangent,
     bezier_divide_by_distances,
@@ -251,6 +254,344 @@ class TestAngleProfileFactor:
         # values outside [0, 1] should be clamped
         assert angle_profile_factor("cosine", -0.5) == pytest.approx(1.0)
         assert angle_profile_factor("cosine", 1.5) == pytest.approx(0.0)
+
+    def test_original_profile(self):
+        # original profile returns None (special handling flag)
+        assert angle_profile_factor("original", 0.0) is None
+        assert angle_profile_factor("original", 0.5) is None
+        assert angle_profile_factor("original", 1.0) is None
+
+
+class TestCalculateBlendFactor:
+    """Tests for calculate_blend_factor function"""
+
+    def test_center_position_odd_count(self):
+        # For 5 keys (indices 0-4), center is at index 2
+        assert calculate_blend_factor(2, 5) == pytest.approx(1.0)
+
+    def test_center_position_even_count(self):
+        # For 6 keys (indices 0-5), center is at 2.5
+        # Index 2 and 3 should both have high blend factors
+        assert calculate_blend_factor(2, 6) > 0.5
+        assert calculate_blend_factor(3, 6) > 0.5
+
+    def test_edge_positions(self):
+        # Edges should have blend factor 0.0
+        assert calculate_blend_factor(0, 5) == pytest.approx(0.0)
+        assert calculate_blend_factor(4, 5) == pytest.approx(0.0)
+
+    def test_blend_zone(self):
+        # Keys within 2 positions of center should have non-zero blend
+        # For 7 keys, center is at index 3
+        assert calculate_blend_factor(3, 7) == pytest.approx(1.0)  # center
+        assert calculate_blend_factor(2, 7) == pytest.approx(0.5)  # 1 away
+        assert calculate_blend_factor(4, 7) == pytest.approx(0.5)  # 1 away
+        assert calculate_blend_factor(1, 7) == pytest.approx(0.0)  # 2 away (edge of zone)
+        assert calculate_blend_factor(5, 7) == pytest.approx(0.0)  # 2 away (edge of zone)
+
+    def test_single_key(self):
+        assert calculate_blend_factor(0, 1) == pytest.approx(0.0)
+
+    def test_empty_count(self):
+        assert calculate_blend_factor(0, 0) == pytest.approx(0.0)
+
+
+class TestSelectContactModeForOriginalGrin:
+    """Tests for select_contact_mode_for_original_grin function"""
+
+    def test_large_angle_diff_returns_upper(self):
+        # Angle difference > 5 degrees should return upper
+        prev_angle = math.radians(10.0)
+        curr_angle = math.radians(20.0)  # diff = 10 degrees
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 3, 7)
+        assert mode == "upper"
+
+    def test_large_avg_angle_returns_upper(self):
+        # Average angle > 10 degrees should return upper
+        prev_angle = math.radians(11.0)
+        curr_angle = math.radians(12.0)  # avg = 11.5 degrees, diff = 1 degree
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 3, 7)
+        assert mode == "upper"
+
+    def test_edge_position_returns_lower(self):
+        # Position near edge (norm_distance > 0.7) should return lower
+        prev_angle = math.radians(2.0)
+        curr_angle = math.radians(3.0)  # small angles
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 6, 7)
+        # Index 6 out of 7 keys (0-6), center is 3, distance is 3/3 = 1.0 > 0.7
+        assert mode == "lower"
+
+    def test_default_returns_lower(self):
+        # Small angle diff, small avg angle, not at edge -> lower
+        prev_angle = math.radians(5.0)
+        curr_angle = math.radians(6.0)
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 3, 7)
+        # Center is at 3, norm_distance = 0, avg_angle = 5.5 degrees < 10
+        assert mode == "lower"
+
+    def test_symmetric_positions(self):
+        # Symmetric positions from center should give same result
+        mode_left = select_contact_mode_for_original_grin(
+            math.radians(5.0), math.radians(6.0), 2, 7
+        )
+        mode_right = select_contact_mode_for_original_grin(
+            math.radians(5.0), math.radians(6.0), 4, 7
+        )
+        assert mode_left == mode_right
+
+    def test_flat_key_prev_returns_lower(self):
+        # Previous key is flat (angle ≈ 0) -> lower
+        prev_angle = math.radians(0.0)  # flat
+        curr_angle = math.radians(15.0)  # angled
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 3, 7)
+        assert mode == "lower"
+
+    def test_flat_key_curr_returns_lower(self):
+        # Current key is flat (angle ≈ 0) -> lower
+        prev_angle = math.radians(15.0)  # angled
+        curr_angle = math.radians(0.0)  # flat
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 3, 7)
+        assert mode == "lower"
+
+    def test_both_flat_returns_lower(self):
+        # Both keys are flat -> lower
+        prev_angle = math.radians(0.0)
+        curr_angle = math.radians(0.5)  # almost flat
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 3, 7)
+        assert mode == "lower"
+
+    def test_flat_key_overrides_large_angle_diff(self):
+        # Even with large angle diff, flat key should force lower
+        prev_angle = math.radians(0.0)  # flat
+        curr_angle = math.radians(20.0)  # large angle
+        mode = select_contact_mode_for_original_grin(prev_angle, curr_angle, 3, 7)
+        assert mode == "lower"  # flat key overrides angle_diff rule
+
+    def test_category_flat_returns_lower(self):
+        # Category "flat" should force lower, regardless of angles
+        prev_angle = math.radians(15.0)  # angled
+        curr_angle = math.radians(15.0)  # angled
+        mode = select_contact_mode_for_original_grin(
+            prev_angle, curr_angle, 3, 7,
+            prev_category="lower", curr_category="flat"
+        )
+        assert mode == "lower"
+
+    def test_category_valley_flat_returns_lower(self):
+        # Category "valley_flat" should force lower
+        prev_angle = math.radians(15.0)
+        curr_angle = math.radians(15.0)
+        mode = select_contact_mode_for_original_grin(
+            prev_angle, curr_angle, 3, 7,
+            prev_category="valley_flat", curr_category="lower"
+        )
+        assert mode == "lower"
+
+    def test_category_overrides_angle(self):
+        # Category should override angle-based detection
+        # Even though angles are large, flat category should force lower
+        prev_angle = math.radians(20.0)
+        curr_angle = math.radians(20.0)
+        mode = select_contact_mode_for_original_grin(
+            prev_angle, curr_angle, 3, 7,
+            prev_category="flat", curr_category="lower"
+        )
+        assert mode == "lower"
+
+
+class TestCalculateOriginalGrinLayout:
+    """Tests for calculate_original_grin_layout function"""
+
+    def test_basic_arc_layout(self):
+        P0 = (0.0, 0.0)
+        P3 = (100.0, 0.0)
+        sag = 20.0
+        N = 5
+        cumulative_distances = [0.0, 25.0, 50.0, 75.0, 100.0]
+
+        centers, angles = calculate_original_grin_layout(
+            P0, P3, sag, N, cumulative_distances,
+            UNIT_MM, UNIT_MM, use_asymmetric_curve=False
+        )
+
+        assert len(centers) == N
+        assert len(angles) == N
+
+        # First and last points should be at or near P0 and P3
+        assert centers[0][0] == pytest.approx(P0[0], abs=0.1)
+        assert centers[-1][0] == pytest.approx(P3[0], abs=0.1)
+
+        # Y coordinates should curve downward
+        assert centers[0][1] == pytest.approx(P0[1], abs=0.1)
+        assert centers[2][1] < P0[1] - sag * 0.8  # middle should be well below start
+
+    def test_symmetric_angles(self):
+        P0 = (0.0, 0.0)
+        P3 = (100.0, 0.0)
+        sag = 20.0
+        N = 5
+        cumulative_distances = [0.0, 25.0, 50.0, 75.0, 100.0]
+
+        centers, angles = calculate_original_grin_layout(
+            P0, P3, sag, N, cumulative_distances,
+            UNIT_MM, UNIT_MM, use_asymmetric_curve=False
+        )
+
+        # Angles should be symmetric (first and last should have similar magnitude but opposite sign)
+        assert angles[0] == pytest.approx(-angles[-1], abs=0.01)
+        # Center angle should be close to 0 (with blend adjustment)
+        assert abs(angles[2]) < abs(angles[0])
+
+    def test_asymmetric_curve_shifts_center(self):
+        P0 = (0.0, 0.0)
+        P3 = (100.0, 0.0)
+        sag = 20.0
+        N = 5
+        cumulative_distances = [0.0, 25.0, 50.0, 75.0, 100.0]
+
+        # Symmetric case
+        centers_sym, _ = calculate_original_grin_layout(
+            P0, P3, sag, N, cumulative_distances,
+            UNIT_MM, UNIT_MM, use_asymmetric_curve=False
+        )
+
+        # Asymmetric case (left wider)
+        centers_asym, _ = calculate_original_grin_layout(
+            P0, P3, sag, N, cumulative_distances,
+            1.75 * UNIT_MM, 1.0 * UNIT_MM, use_asymmetric_curve=True
+        )
+
+        # Center should shift left when left key is wider
+        assert centers_asym[2][0] < centers_sym[2][0]
+
+    def test_zero_sag_straight_line(self):
+        P0 = (0.0, 0.0)
+        P3 = (100.0, 0.0)
+        sag = 0.0
+        N = 3
+        cumulative_distances = [0.0, 50.0, 100.0]
+
+        centers, angles = calculate_original_grin_layout(
+            P0, P3, sag, N, cumulative_distances,
+            UNIT_MM, UNIT_MM, use_asymmetric_curve=False
+        )
+
+        # With zero sag, all Y coordinates should be approximately the same
+        assert centers[0][1] == pytest.approx(P0[1], abs=1e-5)
+        assert centers[1][1] == pytest.approx(P0[1], abs=1e-5)
+        assert centers[2][1] == pytest.approx(P0[1], abs=1e-5)
+
+        # All angles should be approximately 0
+        assert all(abs(ang) < 0.01 for ang in angles)
+
+
+class TestOriginalGrinRealWorldCase:
+    """Diagnostic test for real-world parameters to identify interference issues"""
+
+    def test_10keys_endflat1_sag18_simulation(self):
+        """
+        Simulate the actual user case:
+        - 10 keys (SW13-SW22)
+        - end_flat = 1
+        - sag = 18mm
+        - profile = "original"
+        - use_asymmetric_curve = False
+
+        This test outputs detailed information about each key and contact mode selection
+        to help identify which pairs are causing interference.
+        """
+        N = 10
+        end_flat = 1
+        sag_mm = 18.0
+
+        # Setup similar to run_with_parameters_zero_flat
+        P0 = (0.0, 0.0)
+        row_length = UNIT_MM * (N - 1)  # 9 units for 10 keys
+        P3 = (row_length, 0.0)
+
+        # Calculate cumulative distances (uniform spacing)
+        cumulative_distances = [i * UNIT_MM for i in range(N)]
+
+        # Calculate layout
+        centers, angles = calculate_original_grin_layout(
+            P0, P3, sag_mm, N, cumulative_distances,
+            UNIT_MM, UNIT_MM, use_asymmetric_curve=False
+        )
+
+        # Assign categories
+        categories = assign_categories(N, end_flat)
+
+        # Override angles for flat keys
+        for idx, cat in enumerate(categories):
+            if cat in ("flat", "valley_flat"):
+                angles[idx] = 0.0
+
+        # Calculate contact modes (same logic as in run_with_parameters_*)
+        contact_modes = []
+        for idx in range(N):
+            if idx == 0:
+                contact_modes.append(None)
+            else:
+                mode = select_contact_mode_for_original_grin(
+                    angles[idx - 1], angles[idx], idx, N,
+                    categories[idx - 1], categories[idx]
+                )
+                contact_modes.append(mode)
+
+        # Print detailed diagnostic information
+        print("\n" + "="*80)
+        print("ORIGINAL GRIN LAYOUT SIMULATION - 10 keys, end_flat=1, sag=18mm")
+        print("="*80)
+
+        print("\nKEY DETAILS:")
+        print("-" * 80)
+        for idx in range(N):
+            print(f"Key {idx}: category={categories[idx]:12s}  "
+                  f"angle={angles[idx]:6.2f}°  "
+                  f"pos=({centers[idx][0]:6.2f}, {centers[idx][1]:6.2f})")
+
+        print("\nCONTACT MODE SELECTION:")
+        print("-" * 80)
+        for idx in range(1, N):
+            prev_cat = categories[idx - 1]
+            curr_cat = categories[idx]
+            prev_ang = angles[idx - 1]
+            curr_ang = angles[idx]
+            mode = contact_modes[idx]
+
+            # Determine selection reason
+            angle_diff = abs(curr_ang - prev_ang)
+            avg_angle = (abs(prev_ang) + abs(curr_ang)) / 2.0
+
+            norm_pos = idx / (N - 1) if N > 1 else 0.5
+            distance = abs(norm_pos - 0.5) * 2.0
+
+            reasons = []
+            if prev_cat in ("flat", "valley_flat") or curr_cat in ("flat", "valley_flat"):
+                reasons.append("flat key rule")
+            if angle_diff > 5.0:
+                reasons.append(f"angle diff {angle_diff:.1f}° > 5°")
+            if avg_angle > 10.0:
+                reasons.append(f"avg angle {avg_angle:.1f}° > 10°")
+            if distance > 0.7:
+                reasons.append(f"edge position {distance:.2f} > 0.7")
+            if not reasons:
+                reasons.append("default")
+
+            reason_str = ", ".join(reasons)
+
+            print(f"Contact {idx-1}→{idx}: "
+                  f"prev_cat={prev_cat:12s} curr_cat={curr_cat:12s}  "
+                  f"prev_ang={prev_ang:6.2f}° curr_ang={curr_ang:6.2f}°")
+            print(f"  → mode={mode:5s}  reason: {reason_str}")
+
+        print("="*80)
+
+        # Basic assertions to ensure test runs properly
+        assert len(centers) == N
+        assert len(angles) == N
+        assert len(categories) == N
+        assert len(contact_modes) == N
 
 
 # --- Layout Logic Tests ---

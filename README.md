@@ -44,9 +44,19 @@ Created with vibing using Codex and Claude.
 
 ## Example
 
-1. [cheena-gb](https://github.com/cheena-gb)'s [65% keyboard](./example/griiiiiiiiii.kicad_pcb)
+1. [cheena-gb](https://github.com/cheena-gb)'s [60% keyboard](./example/griiiiiiiiii.kicad_pcb)
    * View it on [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)
-   * Built with an alpha plugin version not stored in this repository plus manual adjustments by the contributor
+   * Built with an alpha plugin version not stored in this repository plus manual adjustments by the contributor using Keyboard Interference Check Footprints
+
+### About "Keyboard Interference Check Footprints"
+Files contained inside [kbd_SW_IFC](./kbd_SW_IFC/) are footprints for checking interference between keys and keycaps.  
+The outer rectangle has width of 19.05mm X units; the inner one is 0.5mm offset of that.  
+The square inside is the switch hole, drawn on Edge.Cuts.  
+Through holes on the edges are 2.2mm diameter; M2 screw through hole.  
+  
+It is possible to fine-tune the placements of the footprints with these footprints.
+Please use it as same as regular footprints.
+* Checked on KiCAD 9
 
 ## Acknowledgement
 

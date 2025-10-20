@@ -42,9 +42,19 @@ codexやclaudeによるvibingで作成しています。
 
 ## 作例
 
-1. [ちぃな](https://github.com/cheena-gb)さんによる[65% キーボード](./example/griiiiiiiiii.kicad_pcb) by 
+1. [ちぃな](https://github.com/cheena-gb)さんによる[60% キーボード](./example/griiiiiiiiii.kicad_pcb)
   * [kicanvas](https://kicanvas.org/?github=https%3A%2F%2Fgithub.com%2Ff4ah6o%2Fkicad-keyboard-grinner%2Fblob%2Fmain%2Fexample%2Fgriiiiiiiiii.kicad_pcb)から見れます。
-  * この作例はリポジトリにないAlpha版を利用し、ユーザー操作による調整を行っています。
+  * この作例はリポジトリにないAlpha版を利用し、Keyboard Interference Check Footprintsを使用して手作業での調整を行っています。
+
+### Keyboard Interference Check Footprintsについて
+[kbd_SW_IFC](./kbd_SW_IFC/)内に入っているフットプリントはKiCADでのキースイッチ・キーキャップ・ネジ穴の干渉確認用フットプリントです。  
+一番外側の枠がユニット数×19.05mmの幅、その内側のものが0.5mmオフセットになっており、概ねキーキャップの外形と一致します。  
+内側に入っている正方形や縦長の長方形はスイッチやスタビライザーの入る穴です(画層はEdge.Cutsです)。  
+四隅のスルーホールは直径2.2mmになっています。  
+  
+スルーホールをつかんで移動させると、別のスルーホールにスナップさせてちょうど角を合わせる、などといった微調整作業が行いやすくなります。  
+通常のフットプリントと同様にKiCADに導入して使用してください。  
+※KiCAD 9での動作を確認しています
 
 ## 謝辞
 

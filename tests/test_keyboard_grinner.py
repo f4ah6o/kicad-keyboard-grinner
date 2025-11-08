@@ -4,32 +4,40 @@
 import math
 from unittest.mock import MagicMock
 import sys
+from pathlib import Path
 
 import pytest
 
-# Mock pcbnew and wx before importing keyboard_grinner
+# Add src directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Mock pcbnew and wx before importing modules
 sys.modules["pcbnew"] = MagicMock()
 sys.modules["wx"] = MagicMock()
 
-from keyboard_grinner import (
+from src.unit_parsing import (  # noqa: E402
     UNIT_MM,
     _convert_unit_token,
     _parse_unit_pair,
     _parse_unit_value,
     _quantize_dim_mm,
+)
+from src.geometry import (  # noqa: E402
     rot2d,
     board_to_math,
     math_to_board,
-    natural_key,
-    angle_profile_factor,
-    assign_categories,
-    contact_mode_from_categories,
     calculate_asymmetric_bezier_controls,
     bezier_cubic_point,
     bezier_cubic_tangent,
     bezier_divide_by_distances,
     corner_point_math,
     get_lower_upper_labels,
+)
+from src.keyboard_grinner import natural_key  # noqa: E402
+from src.layout_calculator import (  # noqa: E402
+    angle_profile_factor,
+    assign_categories,
+    contact_mode_from_categories,
 )
 
 
@@ -342,15 +350,14 @@ class TestCalculateAsymmetricBezierControls:
         left_width = 1.75 * UNIT_MM
         right_width = 1.0 * UNIT_MM
 
-        P1, P2 = calculate_asymmetric_bezier_controls(P0, P3, sag, left_width, right_width)
+        P1, P2 = calculate_asymmetric_bezier_controls(
+            P0, P3, sag, left_width, right_width
+        )
 
         # asymmetry = (1.75 - 1.0) / (1.75 + 1.0) = 0.75/2.75 ≈ 0.273
         # shift = 0.273 * 0.15 ≈ 0.041
         # P1 should shift left: 1/3 - 0.041 ≈ 0.292
         # P2 should shift left: 2/3 - 0.041 ≈ 0.626
-        expected_p1_ratio = (1.0 / 3.0) - 0.041
-        expected_p2_ratio = 1.0 - ((1.0 / 3.0) + 0.041)
-
         assert P1[0] < 100.0 / 3.0  # shifted left
         assert P2[0] < 200.0 / 3.0  # shifted left
 
@@ -362,7 +369,9 @@ class TestCalculateAsymmetricBezierControls:
         left_width = 1.0 * UNIT_MM
         right_width = 1.5 * UNIT_MM
 
-        P1, P2 = calculate_asymmetric_bezier_controls(P0, P3, sag, left_width, right_width)
+        P1, P2 = calculate_asymmetric_bezier_controls(
+            P0, P3, sag, left_width, right_width
+        )
 
         # asymmetry = (1.0 - 1.5) / (1.0 + 1.5) = -0.2
         # shift = -0.2 * 0.15 = -0.03
